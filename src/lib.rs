@@ -1,254 +1,467 @@
-use core::cmp::min;
-use core::hash::Hash;
-use num::{range, FromPrimitive, ToPrimitive, Unsigned};
-use std::collections::HashMap;
+use core::cmp;
+use core::fmt;
+use std::vec;
+
+mod sudoku;
+pub use sudoku::Sudoku;
 
 fn on_integer_overflow<T>() -> T {
     panic!("Integer overflow");
 }
 
-pub trait Size: Unsigned + ToPrimitive + FromPrimitive + Copy + Ord + Hash {
+pub trait Size:
+    num::Unsigned + num::ToPrimitive + num::FromPrimitive + Copy + Ord + fmt::Display + fmt::Debug
+{
     fn to_usize_unwrap(self) -> usize {
-        ToPrimitive::to_usize(&self).unwrap_or_else(on_integer_overflow)
+        self.to_usize().unwrap_or_else(on_integer_overflow)
     }
 
     fn from_usize_unwrap(value: usize) -> Self {
-        FromPrimitive::from_usize(value).unwrap_or_else(on_integer_overflow)
+        Self::from_usize(value).unwrap_or_else(on_integer_overflow)
     }
 }
 
-struct Node<T: Size> {
-    left: T,
-    right: T,
-    up: T,
-    down: T,
-    data: T,
+impl Size for u8 {}
+impl Size for u16 {}
+impl Size for u32 {}
+impl Size for u64 {}
+impl Size for usize {}
+
+struct Node<S: Size> {
+    left: S,
+    right: S,
+    up: S,
+    down: S,
+    column: S,
 }
 
-pub struct DLXMatrix<T: Size, X> {
-    columns: T,
-    column_header: T,
-    buffer: Vec<Node<T>>,
-    row_data: HashMap<T, X>,
+pub struct DLXMatrix<S: Size> {
+    columns: S,
+    buffer: Vec<Node<S>>,
 }
 
-impl<T: Size, X> DLXMatrix<T, X> {
-    pub fn new(columns: T) -> Self {
-        let buffer = range(T::zero(), columns)
-            .map(|column| {
-                let left = if column.is_zero() {
-                    columns - T::one()
-                } else {
-                    column - T::one()
-                };
+impl<S: Size> DLXMatrix<S> {
+    pub fn new(columns: S) -> Self {
+        let buffer = (0..=columns.to_usize_unwrap())
+            .map(|i| {
+                let i = S::from_usize_unwrap(i);
 
-                let right = if column == columns - T::one() {
-                    T::zero()
+                let left = if i.is_zero() { columns } else { i - S::one() };
+
+                let right = if i == columns {
+                    S::zero()
                 } else {
-                    column + T::one()
+                    i + S::one()
                 };
 
                 Node {
                     left,
                     right,
-                    up: column,
-                    down: column,
-                    data: T::zero(),
+                    up: i,
+                    down: i,
+                    column: S::zero(),
                 }
             })
-            .collect::<Vec<_>>();
-
-        Self {
-            buffer,
-            columns,
-            column_header: T::zero(),
-            row_data: HashMap::new(),
-        }
+            .collect();
+        DLXMatrix { columns, buffer }
     }
 
-    pub fn append_row(&mut self, columns: &[T], data: X) {
-        assert!(!columns.is_empty());
+    pub fn columns(&self) -> S {
+        self.columns
+    }
 
+    pub fn push_row(&mut self, columns: &[S]) {
+        assert!(!columns.is_empty(), "Rows must be non-empty");
+
+        let row = self.buffer.len();
         self.buffer.reserve(columns.len());
 
-        let row = T::from_usize_unwrap(self.buffer.len());
-
         for (i, &column) in columns.iter().enumerate() {
-            assert!(column < self.columns);
+            assert!(
+                column < self.columns,
+                "Columns must be in the range 0..{} (got {})",
+                self.columns,
+                column
+            );
 
-            let node = row + T::from_usize_unwrap(i);
+            let node = S::from_usize_unwrap(row + i);
+            let left = S::from_usize_unwrap(row + if i == 0 { columns.len() - 1 } else { i - 1 });
+            let right = S::from_usize_unwrap(row + if i == columns.len() - 1 { 0 } else { i + 1 });
 
-            let left = if i == 0 {
-                row + T::from_usize_unwrap(columns.len()) - T::one()
-            } else {
-                node - T::one()
+            let up = {
+                let column_ref = unsafe { self.get_unchecked_mut(column) };
+                let up = column_ref.up;
+                column_ref.up = node;
+                column_ref.column = column_ref.column + S::one();
+                up
             };
 
-            let right = if i == columns.len() - 1 {
-                row
-            } else {
-                node + T::one()
-            };
+            let up_ref = unsafe { self.get_unchecked_mut(up) };
+            up_ref.down = node;
 
             let down = column;
 
-            let up = self.node(column).up;
-            self.node_mut(up).down = node;
-
-            self.buffer.push(Node {
+            let node_val = Node {
                 left,
                 right,
                 up,
                 down,
-                data: row,
-            });
+                column,
+            };
 
-            self.node_mut(column).data = self.node(column).data + T::one();
-        }
+            {
+                let len = S::from_usize_unwrap(self.buffer.len() + columns.len());
+                debug_assert!(node < len && left < len && right < len && up < len && column < len);
 
-        self.row_data.insert(row, data);
-    }
-
-    fn node(&self, node: T) -> &Node<T> {
-        &self.buffer[node.to_usize_unwrap()]
-    }
-
-    fn node_mut(&mut self, node: T) -> &mut Node<T> {
-        &mut self.buffer[node.to_usize_unwrap()]
-    }
-
-    unsafe fn node_unchecked(&self, node: T) -> &Node<T> {
-        self.buffer.get_unchecked(node.to_usize_unwrap())
-    }
-
-    unsafe fn node_unchecked_mut(&mut self, node: T) -> &mut Node<T> {
-        self.buffer.get_unchecked_mut(node.to_usize_unwrap())
-    }
-
-    fn node_is_column(&self, node: T) -> bool {
-        node < self.columns
-    }
-
-    fn min_count_column(&self) -> T {
-        let mut column_iter = RowIterator::new(self.column_header);
-        let mut min_count_column = None;
-
-        while let Some(column) = unsafe { column_iter.next(&self) } {
-            min_count_column = {
-                let count = unsafe { self.node_unchecked(column) }.data;
-
-                Some(match min_count_column {
-                    Some(best) => min(best, (column, count)),
-                    None => (column, count),
-                })
-            }
-        }
-
-        min_count_column.unwrap().1
-    }
-
-    unsafe fn remove_row(&mut self, node: T) {
-        unimplemented!();
-    }
-
-    unsafe fn restore_row(&mut self, node: T) {
-        unimplemented!();
-    }
-
-    unsafe fn remove_column(&mut self, column: T) {
-        unimplemented!();
-    }
-
-    unsafe fn restore_column(&mut self, column: T) {
-        unimplemented!();
-    }
-}
-
-struct Solver<T: Size, X> {
-    matrix: DLXMatrix<T, X>,
-    stack: Vec<T>,
-    header: Option<T>,
-}
-
-impl<T: Size, X> Solver<T, X> {
-    fn solve(&mut self) -> Option<&Vec<T>> {
-        let header = match self.header {
-            Some(header) => header,
-            None => return Some(&self.stack),
-        };
-
-        let column = self.matrix.min_count_column();
-
-        let mut column_iter = ColumnIterator::new(column);
-        unsafe { column_iter.next(&self.matrix) };
-
-        while let Some(node) = unsafe { column_iter.next(&self.matrix) } {
-            if self.matrix.node_is_column(node) {
-                continue;
-            }
-
-            let mut row_iter = RowIterator::new(node);
-
-            while let Some(node) = unsafe { row_iter.next(&self.matrix) } {
-                let mut column_iter = ColumnIterator::new(node);
-
-                while let Some(node) = unsafe { column_iter.next(&self.matrix) } {
-                    if self.matrix.node_is_column(node) {
-                        unsafe {
-                            self.matrix.remove_column(node);
-                        }
-                    } else {
-                        unsafe {
-                            self.matrix.remove_row(node);
-                        }
-                    }
+                unsafe {
+                    debug_assert!(
+                        self.get_unchecked(up).down == node && self.get_unchecked(down).up == node
+                    );
                 }
             }
 
-            // constrain wrt node
-            self.stack.push(node);
-            self.solve();
-            // unconstrain
+            unsafe {
+                self.buffer
+                    .as_mut_ptr()
+                    .add(node.to_usize_unwrap())
+                    .write(node_val);
+            }
         }
 
-        unimplemented!();
+        for i in 0..columns.len() {
+            let node = S::from_usize_unwrap(row + i);
+            unsafe {
+                let node_ref = self.get_unchecked(node);
+                debug_assert!(
+                    self.get_unchecked(node_ref.left).right == node
+                        && self.get_unchecked(node_ref.right).left == node
+                );
+            }
+        }
+
+        unsafe {
+            self.buffer.set_len(self.buffer.len() + columns.len());
+        }
+    }
+
+    pub fn solve(mut self) -> Option<Solution<S>> {
+        let mut rows = vec![];
+        if self.solve_recursive(&mut rows) {
+            Some(Solution {
+                matrix: self,
+                rows: rows.into_iter(),
+            })
+        } else {
+            None
+        }
+    }
+
+    unsafe fn get_unchecked(&self, i: S) -> &Node<S> {
+        self.buffer.get_unchecked(S::to_usize_unwrap(i))
+    }
+
+    unsafe fn get_unchecked_mut(&mut self, i: S) -> &mut Node<S> {
+        self.buffer.get_unchecked_mut(S::to_usize_unwrap(i))
+    }
+
+    fn solve_recursive(&mut self, solution: &mut Vec<S>) -> bool {
+        //println!("Depth: {}", solution.len());
+        if let Some(column) = self.choose_column() {
+            let mut rows = ColumnIterator::new(column);
+            rows.next(self);
+
+            while let Some(row) = rows.next(self) {
+                unsafe {
+                    self.select_row(row);
+                }
+                solution.push(row);
+
+                if self.solve_recursive(solution) {
+                    return true;
+                }
+
+                unsafe {
+                    self.deselect_row(row);
+                }
+                solution.pop();
+            }
+
+            false
+        } else {
+            true
+        }
+    }
+
+    fn choose_column(&self) -> Option<S> {
+        {
+            //println!("Columns:");
+
+            let mut columns = RowIterator::new(self.columns);
+            columns.next(self);
+
+            let mut columns_vec = vec![];
+            while let Some(column) = columns.next(self) {
+                columns_vec.push(column);
+            }
+
+            println!("{:?}", columns_vec.len());
+        }
+        let mut columns = RowIterator::new(self.columns);
+        columns.next(self);
+
+        if let Some(first_column) = columns.next(self) {
+            let mut best = unsafe { (self.get_unchecked(first_column).column, first_column) };
+
+            while let Some(column) = columns.next(self) {
+                best = cmp::min(best, unsafe { (self.get_unchecked(column).column, column) });
+            }
+
+            Some(best.1)
+        } else {
+            None
+        }
+    }
+
+    unsafe fn select_row(&mut self, row: S) {
+        let mut elements = RowIterator::new(row);
+
+        while let Some(element) = elements.next(self) {
+            let column = self.get_unchecked(element).column;
+
+            let mut conflicting_rows = ColumnIterator::new(column);
+            conflicting_rows.next(self);
+
+            while let Some(row) = conflicting_rows.next(self) {
+                self.remove_row(row);
+            }
+
+            self.remove_column(column);
+        }
+    }
+
+    unsafe fn deselect_row(&mut self, row: S) {
+        let mut elements = ReverseRowIterator::new(self.get_unchecked(row).left);
+
+        while let Some(element) = elements.next(self) {
+            let column = self.get_unchecked(element).column;
+
+            self.restore_column(column);
+
+            let mut conflicting_rows = ReverseColumnIterator::new(column);
+            conflicting_rows.next(self);
+
+            while let Some(row) = conflicting_rows.next(self) {
+                self.restore_row(row);
+            }
+        }
+    }
+
+    unsafe fn remove_row(&mut self, row: S) {
+        let mut elements = RowIterator::new(row);
+        elements.next(self);
+
+        //println!("Row removed: {}", row);
+
+        while let Some(element) = elements.next(self) {
+            let (column, up, down) = {
+                let element_ref = self.get_unchecked_mut(element);
+                (element_ref.column, element_ref.up, element_ref.down)
+            };
+
+            self.get_unchecked_mut(column).column =
+                self.get_unchecked_mut(column).column - S::one();
+
+            debug_assert!(self.get_unchecked(up).down == element);
+            self.get_unchecked_mut(up).down = down;
+
+            debug_assert!(self.get_unchecked(down).up == element);
+            self.get_unchecked_mut(down).up = up;
+        }
+    }
+
+    unsafe fn restore_row(&mut self, row: S) {
+        let mut elements = RowIterator::new(row);
+        elements.next(self);
+
+        //println!("Row restored: {}", row);
+
+        while let Some(element) = elements.next(self) {
+            let (column, up, down) = {
+                let element_ref = self.get_unchecked_mut(element);
+                (element_ref.column, element_ref.up, element_ref.down)
+            };
+
+            self.get_unchecked_mut(column).column =
+                self.get_unchecked_mut(column).column + S::one();
+
+            debug_assert!(self.get_unchecked(up).down == down);
+            self.get_unchecked_mut(up).down = element;
+
+            debug_assert!(self.get_unchecked(down).up == up);
+            self.get_unchecked_mut(down).up = element;
+        }
+    }
+
+    unsafe fn remove_column(&mut self, column: S) {
+        debug_assert!(column < self.columns);
+
+        let (left, right) = {
+            let column_ref = self.get_unchecked_mut(column);
+            (column_ref.left, column_ref.right)
+        };
+
+        debug_assert!(self.get_unchecked(left).right == column);
+        self.get_unchecked_mut(left).right = right;
+
+        debug_assert!(self.get_unchecked(right).left == column);
+        self.get_unchecked_mut(right).left = left;
+    }
+
+    unsafe fn restore_column(&mut self, column: S) {
+        let (left, right) = {
+            let column_ref = self.get_unchecked_mut(column);
+            (column_ref.left, column_ref.right)
+        };
+
+        debug_assert!(self.get_unchecked(left).right == right);
+        self.get_unchecked_mut(left).right = column;
+
+        debug_assert!(self.get_unchecked(right).left == left);
+        self.get_unchecked_mut(right).left = column;
     }
 }
 
-macro_rules! matrix_iterator_impl {
-    ($id:ident, $right:ident) => {
-        struct $id<T: Size> {
-            node: T,
-            start: T,
+macro_rules! dlx_matrix_iter_impl {
+    ($name:ident, $next:ident) => {
+        struct $name<S: Size> {
+            row: S,
+            cursor: S,
             exhausted: bool,
         }
 
-        impl<T: Size> $id<T> {
-            fn new(node: T) -> Self {
+        impl<S: Size> $name<S> {
+            fn new(row: S) -> Self {
                 Self {
-                    node,
-                    start: node,
+                    row,
+                    cursor: row,
                     exhausted: false,
                 }
             }
 
-            unsafe fn next<X>(&mut self, matrix: &DLXMatrix<T, X>) -> Option<T> {
+            fn next(&mut self, matrix: &DLXMatrix<S>) -> Option<S> {
                 if self.exhausted {
                     return None;
                 }
 
-                let node = self.node;
-                self.node = matrix.node_unchecked(self.node).$right;
+                let item = self.cursor;
 
-                if self.node == self.start {
+                let next = unsafe { matrix.get_unchecked(self.cursor).$next };
+
+                if next == self.row {
                     self.exhausted = true;
+                } else {
+                    self.cursor = next;
                 }
 
-                Some(node)
+                Some(item)
             }
         }
     };
 }
 
-matrix_iterator_impl!(RowIterator, right);
-matrix_iterator_impl!(ColumnIterator, down);
+dlx_matrix_iter_impl!(RowIterator, right);
+dlx_matrix_iter_impl!(ReverseRowIterator, left);
+dlx_matrix_iter_impl!(ColumnIterator, down);
+dlx_matrix_iter_impl!(ReverseColumnIterator, up);
+
+pub struct Solution<S: Size> {
+    matrix: DLXMatrix<S>,
+    rows: vec::IntoIter<S>,
+}
+
+impl<S: Size> Iterator for Solution<S> {
+    type Item = SolutionRow<S>;
+
+    fn next(&mut self) -> Option<SolutionRow<S>> {
+        self.rows.next().map(SolutionRow::new)
+    }
+}
+
+pub struct SolutionRow<S: Size> {
+    row: S,
+    cursor: S,
+    exhausted: bool,
+}
+
+impl<S: Size> SolutionRow<S> {
+    fn new(row: S) -> Self {
+        Self {
+            row,
+            cursor: row,
+            exhausted: false,
+        }
+    }
+
+    pub fn next(&mut self, solution: &Solution<S>) -> Option<S> {
+        if self.exhausted {
+            return None;
+        }
+
+        let (column, right) = unsafe {
+            let cursor_ref = solution.matrix.get_unchecked(self.cursor);
+            (cursor_ref.column, cursor_ref.right)
+        };
+
+        if right == self.row {
+            self.exhausted = true;
+        } else {
+            self.cursor = right;
+        }
+
+        Some(column)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::DLXMatrix;
+
+    #[test]
+    fn test_simple() {
+        let mut matrix = DLXMatrix::new(5usize);
+        matrix.push_row(&[0]);
+        matrix.push_row(&[1]);
+        matrix.push_row(&[2]);
+        matrix.push_row(&[3]);
+        matrix.push_row(&[4]);
+
+        let mut solution = matrix.solve().unwrap();
+
+        while let Some(mut row) = solution.next() {
+            while let Some(column) = row.next(&solution) {}
+        }
+    }
+
+    #[test]
+    fn test_simple2() {
+        let mut matrix = DLXMatrix::new(5usize);
+        matrix.push_row(&[0, 1, 2]);
+        matrix.push_row(&[1, 2, 3]);
+        matrix.push_row(&[1, 2, 3, 4]);
+        matrix.push_row(&[0, 4]);
+        matrix.push_row(&[0, 1]);
+        matrix.push_row(&[2, 3]);
+
+        let mut solution = matrix.solve().unwrap();
+        //println!("Done");
+
+        while let Some(mut row) = solution.next() {
+            let mut row_vec = vec![];
+            while let Some(column) = row.next(&solution) {
+                row_vec.push(column);
+            }
+
+            //println!("Solution row: {:?}", row_vec);
+        }
+    }
+}
