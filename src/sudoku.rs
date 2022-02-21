@@ -201,9 +201,11 @@ impl Iterator for CandidateIterator {
 mod test {
     use crate::Sudoku;
     use core::str::FromStr;
+    use flate2::bufread::GzDecoder;
     use std::fs;
     use std::io;
     use std::io::BufRead;
+    use std::path;
 
     fn validate_solution(sudoku: Sudoku) {
         let solution = sudoku.solve().unwrap();
@@ -218,16 +220,12 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_empty() {
-        let sudoku = Sudoku::new();
-        validate_solution(sudoku);
-    }
+    fn test_gzipped_data_file(filename: &'static str) {
+        let path = path::Path::new("data/sudoku").join(filename);
+        let file = fs::File::open(path).unwrap();
+        let decoder = GzDecoder::new(io::BufReader::new(file));
+        let reader = io::BufReader::new(decoder);
 
-    #[test]
-    fn test_top1465() {
-        let file = fs::File::open("data/sudoku/top1465.list").unwrap();
-        let reader = io::BufReader::new(file);
         for line in reader.lines() {
             let line = line.unwrap();
             let trimmed = line.trim();
@@ -239,5 +237,26 @@ mod test {
             let sudoku = Sudoku::from_str(trimmed).unwrap();
             validate_solution(sudoku);
         }
+    }
+
+    #[test]
+    fn test_empty() {
+        let sudoku = Sudoku::new();
+        validate_solution(sudoku);
+    }
+
+    #[test]
+    fn test_top1465() {
+        test_gzipped_data_file("top1465.list.gz");
+    }
+
+    #[test]
+    fn test_kaggle() {
+        test_gzipped_data_file("kaggle.list.gz");
+    }
+
+    #[test]
+    fn test_royle17() {
+        test_gzipped_data_file("royle17.list.gz");
     }
 }
