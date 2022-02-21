@@ -165,7 +165,6 @@ impl<S: Size> DLXMatrix<S> {
     }
 
     fn solve_recursive(&mut self, solution: &mut Vec<S>) -> bool {
-        //println!("Depth: {}", solution.len());
         if let Some(column) = self.choose_column() {
             let mut rows = ColumnIterator::new(column);
             rows.next(self);
@@ -193,19 +192,6 @@ impl<S: Size> DLXMatrix<S> {
     }
 
     fn choose_column(&self) -> Option<S> {
-        {
-            //println!("Columns:");
-
-            let mut columns = RowIterator::new(self.columns);
-            columns.next(self);
-
-            let mut columns_vec = vec![];
-            while let Some(column) = columns.next(self) {
-                columns_vec.push(column);
-            }
-
-            println!("{:?}", columns_vec.len());
-        }
         let mut columns = RowIterator::new(self.columns);
         columns.next(self);
 
@@ -260,8 +246,6 @@ impl<S: Size> DLXMatrix<S> {
         let mut elements = RowIterator::new(row);
         elements.next(self);
 
-        //println!("Row removed: {}", row);
-
         while let Some(element) = elements.next(self) {
             let (column, up, down) = {
                 let element_ref = self.get_unchecked_mut(element);
@@ -282,8 +266,6 @@ impl<S: Size> DLXMatrix<S> {
     unsafe fn restore_row(&mut self, row: S) {
         let mut elements = RowIterator::new(row);
         elements.next(self);
-
-        //println!("Row restored: {}", row);
 
         while let Some(element) = elements.next(self) {
             let (column, up, down) = {
@@ -453,15 +435,12 @@ mod test {
         matrix.push_row(&[2, 3]);
 
         let mut solution = matrix.solve().unwrap();
-        //println!("Done");
 
         while let Some(mut row) = solution.next() {
             let mut row_vec = vec![];
             while let Some(column) = row.next(&solution) {
                 row_vec.push(column);
             }
-
-            //println!("Solution row: {:?}", row_vec);
         }
     }
 }
