@@ -250,7 +250,7 @@ impl Iterator for CandidateIterator {
 
 #[cfg(test)]
 mod test {
-    use crate::Sudoku;
+    use crate::sudoku::Sudoku;
     use core::str::FromStr;
     use flate2::bufread::GzDecoder;
     use std::fs;

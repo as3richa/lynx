@@ -1,3 +1,4 @@
+use core::fmt;
 use core::mem;
 use core::str::FromStr;
 use std::env;
@@ -59,24 +60,33 @@ fn main() {
     let args = parse_args();
 
     let mut file: Box<dyn io::BufRead> = match args.file {
-        Some(file) => Box::new(io::BufReader::new(fs::File::open(file).unwrap())), // FIXME
+        Some(file) => Box::new(io::BufReader::new(
+            fs::File::open(file).unwrap_or_else(handle_error),
+        )),
         None => Box::new(io::BufReader::new(io::stdin())),
     };
 
     if args.lines {
         for line in file.lines() {
-            let sudoku = lynx::Sudoku::from_str(&line.unwrap()).unwrap(); // FIXME
+            let sudoku = lynx::sudoku::Sudoku::from_str(&line.unwrap_or_else(handle_error))
+                .unwrap_or_else(handle_error);
             let solved = sudoku.solve();
             println!("{}", solved.unwrap_or(sudoku).to_string_line());
         }
     } else {
         let string = {
             let mut string = String::new();
-            file.read_to_string(&mut string).unwrap(); // FIXME
+            file.read_to_string(&mut string)
+                .unwrap_or_else(handle_error);
             string
         };
-        let sudoku = lynx::Sudoku::from_str(&string).unwrap(); // FIXME
+        let sudoku = lynx::sudoku::Sudoku::from_str(&string).unwrap_or_else(handle_error);
         let solved = sudoku.solve();
         println!("{}", solved.unwrap_or(sudoku));
     }
+}
+
+fn handle_error<E: fmt::Display, R>(error: E) -> R {
+    _ = eprintln!("{}", error);
+    process::exit(1);
 }

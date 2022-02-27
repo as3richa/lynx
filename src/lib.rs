@@ -2,8 +2,7 @@ use core::cmp;
 use core::fmt;
 use std::vec;
 
-mod sudoku;
-pub use sudoku::Sudoku;
+pub mod sudoku;
 
 fn on_integer_overflow<T>() -> T {
     panic!("Integer overflow");
