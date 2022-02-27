@@ -37,8 +37,11 @@ impl Sudoku {
         let mut matrix = DLXMatrix::<u16>::new(324);
 
         let mut push_row = |x: usize, y: usize, value: u8| {
+            debug_assert!((1..=9).contains(&value));
+
             let value = (value - 1) as u16;
             let box_id = SudokuConstraints::box_id(x, y);
+
             matrix.push_row(&[
                 9 * (y as u16) + (x as u16),
                 81 + 9 * (y as u16) + value,

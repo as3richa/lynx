@@ -21,7 +21,20 @@ fn parse_args() -> Args {
             .get(0)
             .map(|path| path.to_string_lossy().to_string())
             .unwrap_or_else(|| String::from_str("lynx-sudoku").unwrap());
-        _ = eprintln!("Usage: {} [--lines] [FILE]", program_name);
+        _ = eprintln!(
+            "Usage: {} [--lines] [FILE]\n\
+             \n\
+             Solve one or several Sudoku puzzles given in FILE. FILE defaults to the\n\
+             standard input. If --lines is specified, each line of FILE is parsed and\n\
+             solved as a separate puzzle, otherwise the whole file parsed as one single\n\
+             puzzle.\n\
+             \n\
+             Puzzles are specified using the digits 1 through 9 to represent occupied\n\
+             cells, and '.' or 0 to represent unoccupied cells. Whitespace is ignored,\n\
+             except for newlines in --lines mode. Puzzles with no solution are echoed\n\
+             verbatim.",
+            program_name
+        );
         process::exit(1);
     };
 
@@ -30,19 +43,17 @@ fn parse_args() -> Args {
             file: None,
             lines: false,
         },
-        2 => {
-            if args[1].to_str() == Some("--lines") {
-                Args {
-                    file: None,
-                    lines: true,
-                }
-            } else {
-                Args {
-                    file: Some(mem::take(&mut args[1])),
-                    lines: false,
-                }
-            }
-        }
+        2 => match args[1].to_str() {
+            Some("--help" | "-h") => usage(),
+            Some("--lines") => Args {
+                file: None,
+                lines: true,
+            },
+            _ => Args {
+                file: Some(mem::take(&mut args[1])),
+                lines: false,
+            },
+        },
         3 => {
             if args[1].to_str() != Some("--lines") {
                 usage();
