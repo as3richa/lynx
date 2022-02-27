@@ -118,7 +118,10 @@ impl fmt::Display for Sudoku {
                 };
                 write!(f, "{}", ch as char)?;
             }
-            writeln!(f)?;
+
+            if y < 8 {
+                writeln!(f)?;
+            }
         }
 
         Ok(())
@@ -133,26 +136,27 @@ impl str::FromStr for Sudoku {
         let mut i = 0;
 
         for ch in string.chars() {
-            if ch.is_whitespace() {
-                continue;
-            }
-
-            if i >= 81 {
-                return Err(ParseError::TooLong);
-            }
-
             match ch {
                 '0' | '.' => i += 1,
                 '1'..='9' => {
-                    sudoku.set(i % 9, i / 9, (ch as u8) - b'0');
+                    if i < 81 {
+                        let x = i % 9;
+                        let y = i / 9;
+                        sudoku.set(x, y, (ch as u8) - b'0');
+                    }
                     i += 1;
                 }
+                _ if ch.is_whitespace() => (),
                 _ => return Err(ParseError::InvalidCharacter { ch }),
             }
         }
 
         if i < 81 {
-            return Err(ParseError::TooShort);
+            return Err(ParseError::TooShort { len: i });
+        }
+
+        if i > 81 {
+            return Err(ParseError::TooLong { len: i });
         }
 
         Ok(sudoku)
@@ -163,8 +167,8 @@ impl str::FromStr for Sudoku {
 #[non_exhaustive]
 pub enum ParseError {
     InvalidCharacter { ch: char },
-    TooShort,
-    TooLong,
+    TooShort { len: usize },
+    TooLong { len: usize },
 }
 
 impl fmt::Display for ParseError {
@@ -173,15 +177,23 @@ impl fmt::Display for ParseError {
             ParseError::InvalidCharacter { ch } => {
                 write!(
                     f,
-                    "Invalid character {} (valid Sudoku characters are 0-9 and .)",
+                    "Invalid character in Sudoku grid '{}' (valid characters are 1 to 9, '.', and 0)",
                     ch
                 )?;
             }
-            ParseError::TooShort => {
-                write!(f, "Sudoku is too short (must be exactly 81 cells)")?;
+            ParseError::TooShort { len } => {
+                write!(
+                    f,
+                    "Sudoku grid is too short at {} cell(s) (must be exactly 81 cells)",
+                    len
+                )?;
             }
-            ParseError::TooLong => {
-                write!(f, "Sudoku is too long (must be exactly 81 cells)")?;
+            ParseError::TooLong { len } => {
+                write!(
+                    f,
+                    "Sudoku grid is too long at {} cell(s) (must be exactly 81 cells)",
+                    len
+                )?;
             }
         }
 
