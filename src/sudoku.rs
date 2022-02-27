@@ -1,38 +1,12 @@
 use crate::DLXMatrix;
 
 use core::fmt;
+use core::fmt::Write;
 use core::str;
 
 #[derive(Default, Debug)]
 pub struct Sudoku {
     grid: [[u8; 9]; 9],
-}
-
-impl str::FromStr for Sudoku {
-    type Err = ();
-
-    fn from_str(string: &str) -> Result<Self, ()> {
-        let mut sudoku = Self::new();
-
-        let mut i = 0;
-
-        for ch in string.chars() {
-            match ch {
-                '0' | '.' | ' ' | '_' => i += 1,
-                '1'..='9' => {
-                    sudoku.set(i % 9, i / 9, (ch as u8) - b'0');
-                    i += 1;
-                }
-                _ => (),
-            }
-
-            if i == 81 {
-                break;
-            }
-        }
-
-        Ok(sudoku)
-    }
 }
 
 impl Sudoku {
@@ -54,20 +28,7 @@ impl Sudoku {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (usize, usize, u8)> + '_ {
-        (0..9).flat_map(move |x| {
-            let x = x;
-            (0..9).map(move |y| (x, y, self.grid[x][y]))
-        })
-    }
-
-    fn constraints(&self) -> Result<SudokuConstraints, ()> {
-        let mut constraints = SudokuConstraints::new();
-
-        for (x, y, value) in self.iter().filter(|&(_, _, value)| value != 0) {
-            constraints.add(x, y, value)?;
-        }
-
-        Ok(constraints)
+        (0..9).flat_map(move |x| (0..9).map(move |y| (x, y, self.grid[x][y])))
     }
 
     pub fn solve(&self) -> Option<Sudoku> {
@@ -116,6 +77,31 @@ impl Sudoku {
 
         Some(solved)
     }
+
+    pub fn to_string_line(&self) -> String {
+        let mut string = String::new();
+
+        for (_, _, value) in self.iter() {
+            let ch = if value == 0 {
+                '.'
+            } else {
+                (value + b'0') as char
+            };
+            write!(&mut string, "{}", ch).unwrap();
+        }
+
+        string
+    }
+
+    fn constraints(&self) -> Result<SudokuConstraints, ()> {
+        let mut constraints = SudokuConstraints::new();
+
+        for (x, y, value) in self.iter().filter(|&(_, _, value)| value != 0) {
+            constraints.add(x, y, value)?;
+        }
+
+        Ok(constraints)
+    }
 }
 
 impl fmt::Display for Sudoku {
@@ -131,6 +117,71 @@ impl fmt::Display for Sudoku {
             }
             writeln!(f)?;
         }
+
+        Ok(())
+    }
+}
+
+impl str::FromStr for Sudoku {
+    type Err = ParseError;
+
+    fn from_str(string: &str) -> Result<Self, ParseError> {
+        let mut sudoku = Self::new();
+        let mut i = 0;
+
+        for ch in string.chars() {
+            if ch.is_whitespace() {
+                continue;
+            }
+
+            if i >= 81 {
+                return Err(ParseError::TooLong);
+            }
+
+            match ch {
+                '0' | '.' => i += 1,
+                '1'..='9' => {
+                    sudoku.set(i % 9, i / 9, (ch as u8) - b'0');
+                    i += 1;
+                }
+                _ => return Err(ParseError::InvalidCharacter { ch }),
+            }
+        }
+
+        if i < 81 {
+            return Err(ParseError::TooShort);
+        }
+
+        Ok(sudoku)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+#[non_exhaustive]
+pub enum ParseError {
+    InvalidCharacter { ch: char },
+    TooShort,
+    TooLong,
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match *self {
+            ParseError::InvalidCharacter { ch } => {
+                write!(
+                    f,
+                    "Invalid character {} (valid Sudoku characters are 0-9 and .)",
+                    ch
+                )?;
+            }
+            ParseError::TooShort => {
+                write!(f, "Sudoku is too short (must be exactly 81 cells)")?;
+            }
+            ParseError::TooLong => {
+                write!(f, "Sudoku is too long (must be exactly 81 cells)")?;
+            }
+        }
+
         Ok(())
     }
 }
